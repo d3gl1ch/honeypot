@@ -5,23 +5,39 @@ from honeypot.sensors.ssh_server import start_server
 from honeypot.storage.db import Storage
 
 
-def test_ssh_logs_password(tmp_path):
+def run_client(tmp_path, port, password, command=None):
+    # поднимаем сервер, заходим, возвращаем путь к базе и вывод команды
     db_path = tmp_path / "t.db"
 
     async def run():
-        server = await start_server(port=2299, key_path=str(tmp_path / "key"),
+        out = None
+        server = await start_server(port=port, key_path=str(tmp_path / "key"),
                                     db_path=str(db_path),
                                     log_path=str(tmp_path / "e.jsonl"))
         try:
-            await asyncssh.connect("127.0.0.1", 2299, username="root",
-                                   password="1234", known_hosts=None)
+            async with asyncssh.connect("127.0.0.1", port, username="root",
+                                        password=password, known_hosts=None) as conn:
+                if command:
+                    out = (await conn.run(command)).stdout
         except asyncssh.PermissionDenied:
-            pass  # так и должно быть, мы никого не пускаем
+            pass  # неверный пароль
         server.close()
         await server.wait_closed()
+        return out
 
-    asyncio.run(run())
+    out = asyncio.run(run())
+    return db_path, out
 
+
+def test_bad_password(tmp_path):
+    db_path, _ = run_client(tmp_path, 2299, "zzz")
     auth = Storage(db_path).get_events(event_type="auth")
-    assert auth[0]["payload"]["user"] == "root"
-    assert auth[0]["payload"]["password"] == "1234"
+    assert auth[0]["payload"]["password"] == "zzz"
+    assert auth[0]["payload"]["success"] is False
+
+
+def test_login_and_command(tmp_path):
+    db_path, out = run_client(tmp_path, 2298, "123456", "whoami")
+    assert out == "root\n"
+    cmds = Storage(db_path).get_events(event_type="command")
+    assert cmds[0]["payload"]["cmd"] == "whoami"
