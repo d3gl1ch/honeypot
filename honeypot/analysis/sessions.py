@@ -27,12 +27,12 @@ def classify_session(events):
         if any(e["payload"].get("attacks") for e in http):
             return "web_attack"
         return "web_probe"
+    if len(auths) >= 3:
+            return "bruteforce"
     if cmds:
         if any(re.search(DOWNLOAD_RX, c) for c in cmds):
             return "dropper"  # пытался что-то скачать
         return "recon"  # осматривался в системе
-    if len(auths) >= 3:
-        return "bruteforce"
     if auths:
         return "failed_login"
     return "scan"  # только подключился и ушёл
