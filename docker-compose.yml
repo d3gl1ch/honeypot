@@ -1,0 +1,25 @@
+services:
+  honeypot:
+    build: .
+    restart: unless-stopped
+    ports:
+      # для проверки на своём компе
+      - "2222:2222"
+      - "8080:8080"
+      # на vps вместо них (после переноса настоящего ssh на другой порт):
+      # - "22:2222"
+      # - "80:8080"
+    volumes:
+      - honeypot_data:/data
+    read_only: true        # файлы внутри контейнера менять нельзя
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL                # убираем все лишние права
+    security_opt:
+      - no-new-privileges:true
+    mem_limit: 256m
+    pids_limit: 200
+
+volumes:
+  honeypot_data:
