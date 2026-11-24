@@ -1,5 +1,6 @@
 # ssh приманка: слабые пароли пускают в поддельную консоль
 import asyncio
+import hashlib
 from pathlib import Path
 
 import asyncssh
@@ -20,6 +21,46 @@ MAX_CONNECTIONS = 100   # одновременно открытых ssh-сесс
 MAX_AUTH_TRIES = 5      # попыток пароля на одно соединение
 IDLE_TIMEOUT = 60       # секунд без команд, потом отключаем
 SERVER_VERSION = "OpenSSH_8.9p1 Ubuntu-3ubuntu0.4"
+
+
+def _read_namelist(raw, pos):
+    # 4 байта длины, потом строка через запятую
+    if pos + 4 > len(raw):
+        raise ValueError("короткий kexinit")
+    size = int.from_bytes(raw[pos:pos + 4], "big")
+    pos += 4
+    if pos + size > len(raw):
+        raise ValueError("короткий список")
+    return raw[pos:pos + size].decode("ascii", "replace"), pos + size
+
+
+def _parse_hassh(raw, pos):
+    try:
+        kex, pos = _read_namelist(raw, pos)
+        _hostkey, pos = _read_namelist(raw, pos)
+        enc, pos = _read_namelist(raw, pos)
+        _enc_sc, pos = _read_namelist(raw, pos)
+        mac, pos = _read_namelist(raw, pos)
+        _mac_sc, pos = _read_namelist(raw, pos)
+        comp, pos = _read_namelist(raw, pos)
+    except (IndexError, ValueError):
+        return ""
+    # в kexinit должен быть нормальный список алгоритмов
+    if not kex or "," not in kex or any(c < " " or c > "~" for c in kex):
+        return ""
+    return hashlib.md5(f"{kex};{enc};{mac};{comp}".encode()).hexdigest()
+
+
+def client_hassh(conn):
+    # hassh = md5(kex;enc;mac;comp) по kexinit клиента
+    raw = getattr(conn, "_client_kexinit", None)
+    if not raw:
+        return ""
+    for pos in (17, 16):  # asyncssh кладёт перед cookie байт типа пакета
+        value = _parse_hassh(raw, pos)
+        if value:
+            return value
+    return ""
 
 
 class HoneySSHServer(asyncssh.SSHServer):
@@ -68,7 +109,8 @@ class HoneySSHServer(asyncssh.SSHServer):
                                        "success": ok,
                                        "attempt": self.auth_tries,
                                        "client_version": self.conn.get_extra_info(
-                                           "client_version") or ""}))
+                                           "client_version") or "",
+                                       "hassh": client_hassh(self.conn)}))
         if not ok and self.auth_tries >= self.max_auth_tries:
             self.conn.close()  # хватит перебирать пароли
         return ok

