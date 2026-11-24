@@ -13,12 +13,13 @@ def parse_args():
     p.add_argument("--key", default="keys/ssh_host_key")
     p.add_argument("--db", default="logs/events.db")
     p.add_argument("--log", default="logs/events.jsonl")
+    p.add_argument("--quarantine", default="quarantine")
     return p.parse_args()
 
 
 async def run(args):
     ssh, web = await start_all(args.host, args.ssh_port, args.http_port,
-                               args.key, args.db, args.log)
+                               args.key, args.db, args.log, args.quarantine)
     print(f"ssh на порту {args.ssh_port}, http на порту {args.http_port}")
     try:
         await asyncio.Event().wait()  # висим пока не остановим

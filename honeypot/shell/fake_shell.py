@@ -1,4 +1,7 @@
 # поддельная консоль: виртуальная файловая система и несколько команд
+import hashlib
+from pathlib import Path
+from urllib.parse import urlparse
 
 # папки: путь -> что внутри
 DIRS = {
@@ -28,6 +31,7 @@ class FakeShell:
         self.home = "/root" if user == "root" else "/home/user"
         self.cwd = self.home
         self.closed = False  # станет True после exit
+        self.downloads = []  # "скачанные" атакующим файлы (для DOWNLOAD)
 
     def prompt(self):
         sign = "#" if self.user == "root" else "$"
@@ -115,6 +119,52 @@ class FakeShell:
 
     def cmd_echo(self, args):
         return " ".join(args) + "\n"
+
+    def _fake_download(self, url, target=None):
+        # наружу не ходим: детерминированная заглушка, хэш считаем реально
+        url = url.strip("\"'")
+        name = target or Path(urlparse(url).path).name or "payload.bin"
+        name = Path(name).name  # вырезаем ../ из имени
+        content = ("# honeypot fake payload\n"
+                   f"# source: {url}\n").encode("utf-8")
+        digest = hashlib.sha256(content).hexdigest()
+        self.downloads.append({"url": url, "name": name, "sha256": digest,
+                               "content": content.decode("utf-8")})
+        return (f"--{url}--\n"
+                f"Saving to: '{name}'\n\n"
+                f"{name} saved [{len(content)}/{len(content)}]\n")
+
+    def cmd_wget(self, args):
+        target = url = None
+        i = 0
+        while i < len(args):
+            if args[i] in ("-O", "-o") and i + 1 < len(args):
+                target = args[i + 1]
+                i += 2
+            elif args[i].startswith("-"):
+                i += 1
+            else:
+                url = args[i]
+                i += 1
+        if not url:
+            return "wget: missing URL\n"
+        return self._fake_download(url, target)
+
+    def cmd_curl(self, args):
+        target = url = None
+        i = 0
+        while i < len(args):
+            if args[i] in ("-o", "--output") and i + 1 < len(args):
+                target = args[i + 1]
+                i += 2
+            elif args[i].startswith("-"):
+                i += 1
+            else:
+                url = args[i]
+                i += 1
+        if not url:
+            return "curl: missing URL\n"
+        return self._fake_download(url, target)
 
     def cmd_exit(self, args):
         self.closed = True

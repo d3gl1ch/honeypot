@@ -14,4 +14,4 @@ USER hp
 
 EXPOSE 2222 8080
 
-CMD ["python", "-m", "honeypot", "--key", "/data/ssh_host_key", "--db", "/data/events.db", "--log", "/data/events.jsonl"]
+CMD ["python", "-m", "honeypot", "--key", "/data/ssh_host_key", "--db", "/data/events.db", "--log", "/data/events.jsonl", "--quarantine", "/data/quarantine"]

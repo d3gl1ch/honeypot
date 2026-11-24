@@ -8,6 +8,7 @@ from honeypot.events import Event, CONNECT, AUTH, COMMAND, DISCONNECT
 from honeypot.logger import EventLogger
 from honeypot.shell.fake_shell import FakeShell
 from honeypot.storage.db import Storage
+from honeypot.events import Event, CONNECT, AUTH, COMMAND, DOWNLOAD, DISCONNECT
 
 # с этими паролями "взлом" удаётся
 WEAK_PASSWORDS = {"123456", "admin", "password", "root", "1234", "qwerty"}
@@ -51,7 +52,25 @@ class HoneySSHServer(asyncssh.SSHServer):
         return ok
 
 
-async def handle_session(process, logger):
+def drain_downloads(shell, logger, ip, port, sid, quarantine_path):
+    # логируем загрузку и кладём заглушку в карантин
+    if not shell.downloads:
+        return
+    for d in shell.downloads:
+        payload = {"url": d["url"], "name": d["name"], "sha256": d["sha256"]}
+        if quarantine_path:
+            qdir = Path(quarantine_path)
+            qdir.mkdir(parents=True, exist_ok=True)
+            prefix = (sid or "na")[:8]
+            qfile = qdir / f"{prefix}_{d['name']}"
+            qfile.write_text(d["content"], encoding="utf-8")
+            payload["path"] = str(qfile)
+        logger.log(Event("ssh", DOWNLOAD, ip, port, session_id=sid,
+                         payload=payload))
+    shell.downloads.clear()
+
+
+async def handle_session(process, logger, quarantine_path=None):
     # работа атакующего внутри поддельной консоли
     ip, port = process.get_extra_info("peername")[:2]
     sid = SESSIONS.get((ip, port))
@@ -65,6 +84,7 @@ async def handle_session(process, logger):
     if process.command:
         log_cmd(process.command)
         process.stdout.write(shell.run(process.command))
+        drain_downloads(shell, logger, ip, port, sid, quarantine_path)
         process.exit(0)
         return
 
@@ -84,6 +104,7 @@ async def handle_session(process, logger):
         if line:
             log_cmd(line)
             process.stdout.write(shell.run(line))
+            drain_downloads(shell, logger, ip, port, sid, quarantine_path)
     process.exit(0)
 
 
@@ -98,13 +119,14 @@ def get_host_key(path):
 
 
 async def start_server(host="0.0.0.0", port=2222, key_path="keys/ssh_host_key",
-                       db_path="logs/events.db", log_path="logs/events.jsonl"):
+                       db_path="logs/events.db", log_path="logs/events.jsonl",
+                       quarantine_path="quarantine"):
     Path(key_path).parent.mkdir(parents=True, exist_ok=True)
     key = get_host_key(key_path)
     logger = EventLogger(log_path, storage=Storage(db_path))
 
     async def handler(process):
-        await handle_session(process, logger)
+        await handle_session(process, logger, quarantine_path)
 
     return await asyncssh.listen(host, port,
                                  server_factory=lambda: HoneySSHServer(logger),
