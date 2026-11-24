@@ -1,6 +1,5 @@
-from honeypot.events import Event, CONNECT, AUTH, COMMAND, HTTP_REQUEST
-from honeypot.storage.db import Storage
-from honeypot.analysis.sessions import classify_session, guess_actor, summarize
+from honeypot.analysis.sessions import (brute_force_ips, classify_session,
+                                         guess_actor, summarize)
 
 
 def e(etype, payload=None, ts="2026-01-01T00:00:00+00:00"):
@@ -24,6 +23,16 @@ def test_guess_actor():
     assert guess_actor(fast) == "bot"
     assert guess_actor(slow) == "human"
     assert guess_actor([e(AUTH)]) == "unknown"
+
+
+def test_brute_force_ips(tmp_path):
+    db = Storage(tmp_path / "t.db")
+    for i in range(3):
+        db.save(Event("ssh", AUTH, "3.3.3.3", session_id=f"s{i}",
+                      payload={"success": False}))
+    db.save(Event("ssh", AUTH, "4.4.4.4", session_id="x",
+                  payload={"success": True}))
+    assert brute_force_ips(db) == ["3.3.3.3"]
 
 
 def test_summarize(tmp_path):

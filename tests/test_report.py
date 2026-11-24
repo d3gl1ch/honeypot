@@ -31,6 +31,16 @@ def test_report_sections(tmp_path):
     assert "T1110" in text  # перебор паролей попал в MITRE
 
 
+def test_bruteforce_section(tmp_path):
+    db = make_db(tmp_path)
+    for i in range(3):
+        db.save(Event("ssh", AUTH, "6.6.6.6", session_id=f"b{i}",
+                      payload={"success": False}))
+    text = build_report(db)
+    assert "## IP с перебором паролей" in text
+    assert "6.6.6.6" in text
+
+
 def test_empty_report(tmp_path):
     text = build_report(Storage(tmp_path / "e.db"))
     assert "Событий пока нет." in text

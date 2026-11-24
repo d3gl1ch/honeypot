@@ -18,6 +18,21 @@ def load_sessions(storage):
     return sessions
 
 
+def failed_auth_by_ip(storage):
+    # сколько раз с каждого ip не пустили по паролю
+    counts = Counter()
+    for e in storage.get_events(event_type=AUTH, limit=1000000):
+        if not e["payload"].get("success"):
+            counts[e["src_ip"]] += 1
+    return counts
+
+
+def brute_force_ips(storage, threshold=3):
+    # перебор видно по ip: много неудач в разных сессиях
+    return sorted(ip for ip, n in failed_auth_by_ip(storage).items()
+                  if n >= threshold)
+
+
 def classify_session(events):
     http = [e for e in events if e["event_type"] == HTTP_REQUEST]
     auths = [e for e in events if e["event_type"] == AUTH]

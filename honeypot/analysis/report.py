@@ -63,6 +63,9 @@ def build_report(storage, top=10):
             geoip.count_by(events).most_common())
     section(out, "Провайдеры", ["Провайдер", "Событий"],
             geoip.count_by(events, "org").most_common())
+    brute = [(ip, n) for ip, n in sessions.failed_auth_by_ip(storage).most_common()
+             if n >= 3]
+    section(out, "IP с перебором паролей", ["IP", "Неудачных входов"], brute[:top])
     section(out, "Топ логинов (SSH)", ["Логин", "Попыток"],
             stats.top_payload(storage, "auth", "user", top))
     section(out, "Топ паролей (SSH)", ["Пароль", "Попыток"],
