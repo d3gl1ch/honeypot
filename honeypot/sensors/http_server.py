@@ -1,6 +1,8 @@
 # http приманка: фейковая админка, логирует все запросы
 import asyncio
 import re
+import time
+import uuid
 from urllib.parse import unquote_plus, parse_qs
 
 from aiohttp import web
@@ -29,6 +31,21 @@ LOGIN_PAGE = """<html><head><title>Admin Login</title></head>
 <button>Login</button></form></body></html>"""
 
 FAKE_HEADERS = {"Server": "Apache/2.4.41 (Ubuntu)"}
+
+# один ip = одна http-сессия, пока не пройдёт ttl
+HTTP_SESSION_TTL = 300
+HTTP_SESSIONS = {}
+
+
+def session_for(ip, ttl=HTTP_SESSION_TTL, now=None):
+    now = time.time() if now is None else now
+    item = HTTP_SESSIONS.get(ip)
+    if item and now - item["ts"] < ttl:
+        item["ts"] = now
+        return item["sid"]
+    sid = uuid.uuid4().hex
+    HTTP_SESSIONS[ip] = {"sid": sid, "ts": now}
+    return sid
 
 
 def detect_attacks(text):
@@ -59,7 +76,8 @@ def make_app(logger):
             payload["user"] = form.get("username", form.get("log", [""]))[0]
             payload["password"] = form.get("password", form.get("pwd", [""]))[0]
 
-        logger.log(Event("http", HTTP_REQUEST, ip, port, payload=payload))
+        logger.log(Event("http", HTTP_REQUEST, ip, port,
+                         session_id=session_for(ip), payload=payload))
 
         if request.path in LOGIN_PATHS:
             if request.method == "POST":

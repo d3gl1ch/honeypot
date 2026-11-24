@@ -2,7 +2,9 @@ import asyncio
 
 import aiohttp
 
-from honeypot.sensors.http_server import start_server, detect_attacks
+from honeypot.sensors.http_server import (start_server, detect_attacks,
+                                          session_for, HTTP_SESSIONS,
+                                          HTTP_SESSION_TTL)
 from honeypot.storage.db import Storage
 
 
@@ -13,7 +15,16 @@ def test_detect_attacks():
     assert detect_attacks("/index.html") == []
 
 
+def test_session_for():
+    HTTP_SESSIONS.clear()
+    first = session_for("1.1.1.1", now=100)
+    assert session_for("1.1.1.1", now=101) == first
+    assert session_for("2.2.2.2", now=101) != first
+    assert session_for("1.1.1.1", now=100 + HTTP_SESSION_TTL + 1) != first
+
+
 def test_http_logs(tmp_path):
+    HTTP_SESSIONS.clear()
     db_path = tmp_path / "t.db"
     url = "http://127.0.0.1:8099"
 
@@ -38,3 +49,4 @@ def test_http_logs(tmp_path):
     assert login["payload"]["user"] == "admin"
     assert login["payload"]["password"] == "qwerty"
     assert any("sqli" in e["payload"]["attacks"] for e in events)
+    assert len({e["session_id"] for e in events}) == 1
