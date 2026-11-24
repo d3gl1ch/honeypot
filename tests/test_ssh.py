@@ -36,6 +36,32 @@ def test_bad_password(tmp_path):
     assert auth[0]["payload"]["password"] == "zzz"
     assert auth[0]["payload"]["success"] is False
 
+def test_banner(tmp_path):
+    db_path = tmp_path / "t.db"
+
+    async def run():
+        server = await start_server(port=2295, key_path=str(tmp_path / "key"),
+                                    db_path=str(db_path),
+                                    log_path=str(tmp_path / "e.jsonl"))
+        reader, writer = await asyncio.open_connection("127.0.0.1", 2295)
+        banner = await reader.readline()
+        writer.close()
+        try:
+            await writer.wait_closed()
+        except ConnectionError:
+            pass
+        server.close()
+        await server.wait_closed()
+        return banner
+
+    banner = asyncio.run(run())
+    assert banner.startswith(b"SSH-2.0-OpenSSH_8.9p1")
+
+
+def test_client_version_logged(tmp_path):
+    db_path, _ = run_client(tmp_path, 2294, "123456", "whoami")
+    auth = Storage(db_path).get_events(event_type="auth")
+    assert "AsyncSSH" in auth[0]["payload"]["client_version"]
 
 def test_download_event(tmp_path):
     db_path, out = run_client(tmp_path, 2296, "123456",
