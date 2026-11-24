@@ -6,6 +6,7 @@ from html import escape
 from pathlib import Path
 
 from honeypot.analysis import ioc, mitre, sessions, stats
+from honeypot.enrich import geoip
 from honeypot.events import HTTP_REQUEST
 from honeypot.storage.db import Storage
 
@@ -91,6 +92,8 @@ def build_html(storage, top=10):
         bar_chart("Типы сессий", labels.most_common()),
         bar_chart("Бот или человек", actors.most_common()),
         bar_chart("Топ IP", stats.top_ips(storage, top)),
+        bar_chart("Страны", geoip.count_by(events).most_common(top)),
+        bar_chart("Провайдеры", geoip.count_by(events, "org").most_common(top)),
         bar_chart("Топ логинов (SSH)", stats.top_payload(storage, "auth", "user", top)),
         bar_chart("Топ паролей (SSH)", stats.top_payload(storage, "auth", "password", top)),
         bar_chart("Топ команд", stats.top_payload(storage, "command", "cmd", top)),

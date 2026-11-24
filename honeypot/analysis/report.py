@@ -4,6 +4,7 @@ from collections import Counter
 from pathlib import Path
 
 from honeypot.analysis import ioc, mitre, sessions, stats
+from honeypot.enrich import geoip
 from honeypot.events import HTTP_REQUEST
 from honeypot.storage.db import Storage
 
@@ -51,6 +52,20 @@ def build_report(storage, top=10):
     section(out, "Типы сессий", ["Тип", "Сессий"], labels.most_common())
     section(out, "Бот или человек", ["Кто", "Сессий"], actors.most_common())
     section(out, "Топ IP", ["IP", "Событий"], stats.top_ips(storage, top))
+    geo_rows = []
+    for row in storage.count_by("src_ip")[:top]:
+        info = geoip.lookup(row["value"])
+        geo_rows.append((row["value"], info["country"], info["asn"],
+                         info["org"], row["cnt"]))
+    section(out, "География IP", ["IP", "Страна", "ASN", "Провайдер", "Событий"],
+            geo_rows)
+    section(out, "Страны", ["Страна", "Событий"],
+            geoip.count_by(events).most_common())
+    section(out, "Провайдеры", ["Провайдер", "Событий"],
+            geoip.count_by(events, "org").most_common())
+    brute = [(ip, n) for ip, n in sessions.failed_auth_by_ip(storage).most_common()
+             if n >= 3]
+    section(out, "IP с перебором паролей", ["IP", "Неудачных входов"], brute[:top])
     section(out, "Топ логинов (SSH)", ["Логин", "Попыток"],
             stats.top_payload(storage, "auth", "user", top))
     section(out, "Топ паролей (SSH)", ["Пароль", "Попыток"],

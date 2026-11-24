@@ -4,9 +4,10 @@ from collections import Counter
 from pathlib import Path
 from urllib.parse import unquote_plus
 
-from honeypot.analysis.sessions import load_sessions, classify_session
+from honeypot.analysis.sessions import (load_sessions, classify_session,
+                                         brute_force_ips)
 from honeypot.events import COMMAND, HTTP_REQUEST
-from honeypot.storage.db import Storage
+
 
 URL_RX = re.compile(r"(?:https?|ftp)://[^\s'\"<>|;]+")
 IP_RX = re.compile(r"\b(?:\d{1,3}\.){3}\d{1,3}\b")
@@ -60,6 +61,7 @@ def bad_ips(storage):
     for events in load_sessions(storage).values():
         if classify_session(events) in BAD_TYPES:
             ips.add(events[0]["src_ip"])
+    ips |= set(brute_force_ips(storage))
     return sorted(ips)
 
 

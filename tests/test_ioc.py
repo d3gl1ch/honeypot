@@ -27,6 +27,14 @@ def test_collect(tmp_path):
     assert c["domains"]["a.example"] == 2
 
 
+def test_blocklist_bruteforce_by_ip(tmp_path):
+    db = Storage(tmp_path / "t.db")
+    for i in range(3):
+        db.save(Event("ssh", AUTH, "5.5.5.5", session_id=f"s{i}",
+                      payload={"success": False}))
+    assert bad_ips(db) == ["5.5.5.5"]
+
+
 def test_blocklist(tmp_path):
     db = Storage(tmp_path / "t.db")
     for _ in range(3):

@@ -37,6 +37,12 @@ def test_save(tmp_path):
     assert path.read_text(encoding="utf-8").startswith("<!doctype html>")
 
 
+def test_enrich_cards(tmp_path):
+    html = build_html(make_db(tmp_path))
+    assert "Страны" in html
+    assert "Провайдеры" in html
+
+
 def test_content(tmp_path):
     html = build_html(make_db(tmp_path))
     assert "Топ паролей" in html
