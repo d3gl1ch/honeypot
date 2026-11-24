@@ -1,3 +1,5 @@
+from honeypot.events import Event, CONNECT, AUTH, COMMAND, HTTP_REQUEST
+from honeypot.storage.db import Storage
 from honeypot.analysis.sessions import (brute_force_ips, classify_session,
                                          guess_actor, summarize)
 
@@ -23,7 +25,6 @@ def test_guess_actor():
     assert guess_actor(fast) == "bot"
     assert guess_actor(slow) == "human"
     assert guess_actor([e(AUTH)]) == "unknown"
-
 
 def test_brute_force_ips(tmp_path):
     db = Storage(tmp_path / "t.db")
