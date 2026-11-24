@@ -41,7 +41,8 @@ async def read_line(reader, timeout):
     return strip_iac(data).decode("utf-8", "replace").strip()
 
 
-async def handle(reader, writer, logger, quarantine_path, idle_timeout):
+async def handle(reader, writer, logger, quarantine_path, idle_timeout,
+                 passwords):
     peer = writer.get_extra_info("peername") or ("?", 0)
     ip, port = peer[0], peer[1]
     ev = Event("telnet", CONNECT, ip, port)
@@ -61,7 +62,7 @@ async def handle(reader, writer, logger, quarantine_path, idle_timeout):
         if password is None:
             return
 
-        ok = password in WEAK_PASSWORDS
+        ok = password in passwords
         logger.log(Event("telnet", AUTH, ip, port, session_id=sid,
                          payload={"user": user, "password": password,
                                   "success": ok}))
@@ -98,10 +99,12 @@ async def handle(reader, writer, logger, quarantine_path, idle_timeout):
 
 async def start_server(host="0.0.0.0", port=2323, db_path="logs/events.db",
                        log_path="logs/events.jsonl", quarantine_path="quarantine",
-                       idle_timeout=IDLE_TIMEOUT):
+                       idle_timeout=IDLE_TIMEOUT, weak_passwords=None):
     logger = EventLogger(log_path, storage=Storage(db_path))
+    passwords = WEAK_PASSWORDS if weak_passwords is None else weak_passwords
 
     async def handler(reader, writer):
-        await handle(reader, writer, logger, quarantine_path, idle_timeout)
+        await handle(reader, writer, logger, quarantine_path, idle_timeout,
+                     passwords)
 
     return await asyncio.start_server(handler, host, port)

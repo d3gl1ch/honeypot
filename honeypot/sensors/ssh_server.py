@@ -23,8 +23,12 @@ SERVER_VERSION = "OpenSSH_8.9p1 Ubuntu-3ubuntu0.4"
 
 
 class HoneySSHServer(asyncssh.SSHServer):
-    def __init__(self, logger):
+    def __init__(self, logger, passwords=WEAK_PASSWORDS,
+                 max_connections=MAX_CONNECTIONS, max_auth_tries=MAX_AUTH_TRIES):
         self.logger = logger
+        self.passwords = set(passwords)
+        self.max_connections = max_connections
+        self.max_auth_tries = max_auth_tries
         self.conn = None
         self.auth_tries = 0
         self.ip = "?"
@@ -41,7 +45,7 @@ class HoneySSHServer(asyncssh.SSHServer):
         self.session_id = ev.session_id
         SESSIONS[(self.ip, self.port)] = self.session_id
         self.logger.log(ev)
-        if len(SESSIONS) > MAX_CONNECTIONS:
+        if len(SESSIONS) > self.max_connections:
             conn.close()  # слишком много соединений, не пускаем
 
     def connection_lost(self, exc):
@@ -57,7 +61,7 @@ class HoneySSHServer(asyncssh.SSHServer):
 
     def validate_password(self, username, password):
         self.auth_tries += 1
-        ok = password in WEAK_PASSWORDS
+        ok = password in self.passwords
         self.logger.log(Event("ssh", AUTH, self.ip, self.port,
                               session_id=self.session_id,
                               payload={"user": username, "password": password,
@@ -65,7 +69,7 @@ class HoneySSHServer(asyncssh.SSHServer):
                                        "attempt": self.auth_tries,
                                        "client_version": self.conn.get_extra_info(
                                            "client_version") or ""}))
-        if not ok and self.auth_tries >= MAX_AUTH_TRIES:
+        if not ok and self.auth_tries >= self.max_auth_tries:
             self.conn.close()  # хватит перебирать пароли
         return ok
 
@@ -141,20 +145,26 @@ def get_host_key(path):
 
 async def start_server(host="0.0.0.0", port=2222, key_path="keys/ssh_host_key",
                        db_path="logs/events.db", log_path="logs/events.jsonl",
-                        quarantine_path="quarantine", idle_timeout=IDLE_TIMEOUT):
+                       quarantine_path="quarantine", idle_timeout=IDLE_TIMEOUT,
+                       weak_passwords=None, max_connections=MAX_CONNECTIONS,
+                       max_auth_tries=MAX_AUTH_TRIES, login_timeout=30,
+                       server_version=SERVER_VERSION):
     Path(key_path).parent.mkdir(parents=True, exist_ok=True)
     key = get_host_key(key_path)
     logger = EventLogger(log_path, storage=Storage(db_path))
+    passwords = WEAK_PASSWORDS if weak_passwords is None else weak_passwords
 
     async def handler(process):
         await handle_session(process, logger, quarantine_path, idle_timeout)
 
     return await asyncssh.listen(host, port,
-                                 server_factory=lambda: HoneySSHServer(logger),
+                                 server_factory=lambda: HoneySSHServer(
+                                     logger, passwords, max_connections,
+                                     max_auth_tries),
                                  server_host_keys=[key],
                                  process_factory=handler,
-                                 server_version=SERVER_VERSION,
-                                 login_timeout=30)
+                                 server_version=server_version,
+                                 login_timeout=login_timeout)
 
 
 async def main():

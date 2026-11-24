@@ -7,6 +7,7 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 COPY honeypot ./honeypot
+COPY configs ./configs
 
 # обычный пользователь вместо root, данные лежат в /data
 RUN useradd -m hp && mkdir /data && chown hp /data
