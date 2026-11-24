@@ -8,6 +8,7 @@ from honeypot.events import Event, CONNECT, AUTH, COMMAND, DISCONNECT
 from honeypot.logger import EventLogger
 from honeypot.shell.fake_shell import FakeShell
 from honeypot.storage.db import Storage
+from honeypot.events import Event, CONNECT, AUTH, COMMAND, DOWNLOAD, DISCONNECT
 
 # с этими паролями "взлом" удаётся
 WEAK_PASSWORDS = {"123456", "admin", "password", "root", "1234", "qwerty"}
@@ -15,21 +16,37 @@ WEAK_PASSWORDS = {"123456", "admin", "password", "root", "1234", "qwerty"}
 # (ip, port) -> session_id, чтобы команды попадали в ту же сессию
 SESSIONS = {}
 
+MAX_CONNECTIONS = 100   # одновременно открытых ssh-сессий
+MAX_AUTH_TRIES = 5      # попыток пароля на одно соединение
+IDLE_TIMEOUT = 60       # секунд без команд, потом отключаем
+SERVER_VERSION = "OpenSSH_8.9p1 Ubuntu-3ubuntu0.4"
+
 
 class HoneySSHServer(asyncssh.SSHServer):
-    def __init__(self, logger):
+    def __init__(self, logger, passwords=WEAK_PASSWORDS,
+                 max_connections=MAX_CONNECTIONS, max_auth_tries=MAX_AUTH_TRIES):
         self.logger = logger
+        self.passwords = set(passwords)
+        self.max_connections = max_connections
+        self.max_auth_tries = max_auth_tries
+        self.conn = None
+        self.auth_tries = 0
         self.ip = "?"
         self.port = 0
         self.session_id = None
 
     def connection_made(self, conn):
         # кто подключился
+        self.conn = conn
         self.ip, self.port = conn.get_extra_info("peername")[:2]
-        ev = Event("ssh", CONNECT, self.ip, self.port)
+        client_version = conn.get_extra_info("client_version") or ""
+        ev = Event("ssh", CONNECT, self.ip, self.port,
+                   payload={"client_version": client_version})
         self.session_id = ev.session_id
         SESSIONS[(self.ip, self.port)] = self.session_id
         self.logger.log(ev)
+        if len(SESSIONS) > self.max_connections:
+            conn.close()  # слишком много соединений, не пускаем
 
     def connection_lost(self, exc):
         SESSIONS.pop((self.ip, self.port), None)
@@ -43,15 +60,41 @@ class HoneySSHServer(asyncssh.SSHServer):
         return True
 
     def validate_password(self, username, password):
-        ok = password in WEAK_PASSWORDS
+        self.auth_tries += 1
+        ok = password in self.passwords
         self.logger.log(Event("ssh", AUTH, self.ip, self.port,
                               session_id=self.session_id,
                               payload={"user": username, "password": password,
-                                       "success": ok}))
+                                       "success": ok,
+                                       "attempt": self.auth_tries,
+                                       "client_version": self.conn.get_extra_info(
+                                           "client_version") or ""}))
+        if not ok and self.auth_tries >= self.max_auth_tries:
+            self.conn.close()  # хватит перебирать пароли
         return ok
 
 
-async def handle_session(process, logger):
+def drain_downloads(shell, logger, ip, port, sid, quarantine_path,
+                    service="ssh"):
+    # логируем загрузку и кладём заглушку в карантин
+    if not shell.downloads:
+        return
+    for d in shell.downloads:
+        payload = {"url": d["url"], "name": d["name"], "sha256": d["sha256"]}
+        if quarantine_path:
+            qdir = Path(quarantine_path)
+            qdir.mkdir(parents=True, exist_ok=True)
+            prefix = (sid or "na")[:8]
+            qfile = qdir / f"{prefix}_{d['name']}"
+            qfile.write_text(d["content"], encoding="utf-8")
+            payload["path"] = str(qfile)
+        logger.log(Event(service, DOWNLOAD, ip, port, session_id=sid,
+                         payload=payload))
+    shell.downloads.clear()
+
+
+async def handle_session(process, logger, quarantine_path=None,
+                         idle_timeout=IDLE_TIMEOUT):
     # работа атакующего внутри поддельной консоли
     ip, port = process.get_extra_info("peername")[:2]
     sid = SESSIONS.get((ip, port))
@@ -65,6 +108,7 @@ async def handle_session(process, logger):
     if process.command:
         log_cmd(process.command)
         process.stdout.write(shell.run(process.command))
+        drain_downloads(shell, logger, ip, port, sid, quarantine_path)
         process.exit(0)
         return
 
@@ -72,10 +116,11 @@ async def handle_session(process, logger):
     while not shell.closed:
         process.stdout.write(shell.prompt())
         try:
-            line = await process.stdin.readline()
-        except asyncssh.BreakReceived:
+            line = await asyncio.wait_for(process.stdin.readline(), idle_timeout)
+        except asyncio.TimeoutError:
+            process.stdout.write("\nConnection timed out.\n")
             break
-        except (asyncssh.SignalReceived, asyncssh.TerminalSizeChanged):
+        except asyncssh.BreakReceived:
             process.stdout.write("\n")
             continue
         if not line:  # клиент отключился
@@ -84,6 +129,7 @@ async def handle_session(process, logger):
         if line:
             log_cmd(line)
             process.stdout.write(shell.run(line))
+            drain_downloads(shell, logger, ip, port, sid, quarantine_path)
     process.exit(0)
 
 
@@ -98,18 +144,27 @@ def get_host_key(path):
 
 
 async def start_server(host="0.0.0.0", port=2222, key_path="keys/ssh_host_key",
-                       db_path="logs/events.db", log_path="logs/events.jsonl"):
+                       db_path="logs/events.db", log_path="logs/events.jsonl",
+                       quarantine_path="quarantine", idle_timeout=IDLE_TIMEOUT,
+                       weak_passwords=None, max_connections=MAX_CONNECTIONS,
+                       max_auth_tries=MAX_AUTH_TRIES, login_timeout=30,
+                       server_version=SERVER_VERSION):
     Path(key_path).parent.mkdir(parents=True, exist_ok=True)
     key = get_host_key(key_path)
     logger = EventLogger(log_path, storage=Storage(db_path))
+    passwords = WEAK_PASSWORDS if weak_passwords is None else weak_passwords
 
     async def handler(process):
-        await handle_session(process, logger)
+        await handle_session(process, logger, quarantine_path, idle_timeout)
 
     return await asyncssh.listen(host, port,
-                                 server_factory=lambda: HoneySSHServer(logger),
+                                 server_factory=lambda: HoneySSHServer(
+                                     logger, passwords, max_connections,
+                                     max_auth_tries),
                                  server_host_keys=[key],
-                                 process_factory=handler)
+                                 process_factory=handler,
+                                 server_version=server_version,
+                                 login_timeout=login_timeout)
 
 
 async def main():

@@ -1,10 +1,30 @@
 # поднимает все сенсоры вместе
-from honeypot.sensors import ssh_server, http_server
+from honeypot.config import DEFAULTS
+from honeypot.sensors import ssh_server, http_server, telnet_server
 
 
 async def start_all(host="0.0.0.0", ssh_port=2222, http_port=8080,
                     key_path="keys/ssh_host_key", db_path="logs/events.db",
-                    log_path="logs/events.jsonl"):
-    ssh = await ssh_server.start_server(host, ssh_port, key_path, db_path, log_path)
+                    log_path="logs/events.jsonl", quarantine_path="quarantine",
+                    telnet_port=None, config=None):
+    cfg = config or {}
+    ssh_cfg = {**DEFAULTS["ssh"], **cfg.get("ssh", {})}
+    telnet_cfg = {**DEFAULTS["telnet"], **cfg.get("telnet", {})}
+
+    ssh = await ssh_server.start_server(
+        host, ssh_port, key_path, db_path, log_path,
+        quarantine_path=quarantine_path,
+        idle_timeout=ssh_cfg["idle_timeout"],
+        weak_passwords=ssh_cfg["weak_passwords"],
+        max_connections=ssh_cfg["max_connections"],
+        max_auth_tries=ssh_cfg["max_auth_tries"],
+        login_timeout=ssh_cfg["login_timeout"],
+        server_version=ssh_cfg["server_version"])
     web = await http_server.start_server(host, http_port, db_path, log_path)
-    return ssh, web
+    telnet = None
+    if telnet_port:
+        telnet = await telnet_server.start_server(
+            host, telnet_port, db_path, log_path, quarantine_path,
+            idle_timeout=telnet_cfg["idle_timeout"],
+            weak_passwords=telnet_cfg["weak_passwords"])
+    return ssh, web, telnet
