@@ -70,7 +70,8 @@ class HoneySSHServer(asyncssh.SSHServer):
         return ok
 
 
-def drain_downloads(shell, logger, ip, port, sid, quarantine_path):
+def drain_downloads(shell, logger, ip, port, sid, quarantine_path,
+                    service="ssh"):
     # логируем загрузку и кладём заглушку в карантин
     if not shell.downloads:
         return
@@ -83,7 +84,7 @@ def drain_downloads(shell, logger, ip, port, sid, quarantine_path):
             qfile = qdir / f"{prefix}_{d['name']}"
             qfile.write_text(d["content"], encoding="utf-8")
             payload["path"] = str(qfile)
-        logger.log(Event("ssh", DOWNLOAD, ip, port, session_id=sid,
+        logger.log(Event(service, DOWNLOAD, ip, port, session_id=sid,
                          payload=payload))
     shell.downloads.clear()
 

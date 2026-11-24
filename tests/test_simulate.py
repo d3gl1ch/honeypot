@@ -9,8 +9,9 @@ def test_simulate(tmp_path):
     db_path = tmp_path / "t.db"
 
     async def run():
-        ssh, web = await start_all("127.0.0.1", 2296, 8096, str(tmp_path / "key"),
-                                   str(db_path), str(tmp_path / "e.jsonl"))
+        ssh, web, telnet = await start_all("127.0.0.1", 2296, 8096,
+                                           str(tmp_path / "key"), str(db_path),
+                                           str(tmp_path / "e.jsonl"))
         result = await simulate(2296, 8096, scans=2, brutes=1, attempts=3,
                                 bots=1, humans=0, webs=2, one_ip=True)
         ssh.close()

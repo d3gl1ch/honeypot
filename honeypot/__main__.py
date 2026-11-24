@@ -14,19 +14,24 @@ def parse_args():
     p.add_argument("--db", default="logs/events.db")
     p.add_argument("--log", default="logs/events.jsonl")
     p.add_argument("--quarantine", default="quarantine")
+    p.add_argument("--telnet-port", type=int, default=2323)
     return p.parse_args()
 
 
 async def run(args):
-    ssh, web = await start_all(args.host, args.ssh_port, args.http_port,
-                               args.key, args.db, args.log, args.quarantine)
-    print(f"ssh на порту {args.ssh_port}, http на порту {args.http_port}")
+    ssh, web, telnet = await start_all(args.host, args.ssh_port, args.http_port,
+                                       args.key, args.db, args.log,
+                                       args.quarantine, args.telnet_port)
+    print(f"ssh {args.ssh_port}, http {args.http_port}, telnet {args.telnet_port}")
     try:
         await asyncio.Event().wait()  # висим пока не остановим
     finally:
         ssh.close()
         await ssh.wait_closed()
         await web.cleanup()
+        if telnet:
+            telnet.close()
+            await telnet.wait_closed()
 
 
 if __name__ == "__main__":

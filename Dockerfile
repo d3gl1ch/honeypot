@@ -12,6 +12,6 @@ COPY honeypot ./honeypot
 RUN useradd -m hp && mkdir /data && chown hp /data
 USER hp
 
-EXPOSE 2222 8080
+EXPOSE 2222 8080 2323
 
-CMD ["python", "-m", "honeypot", "--key", "/data/ssh_host_key", "--db", "/data/events.db", "--log", "/data/events.jsonl", "--quarantine", "/data/quarantine"]
+CMD ["python", "-m", "honeypot", "--key", "/data/ssh_host_key", "--db", "/data/events.db", "--log", "/data/events.jsonl", "--quarantine", "/data/quarantine", "--telnet-port", "2323"]
